@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { requisitosData } from './data.js';
+import { requisitosData, planesAccionData } from './data.js';
 import { Search, ChevronDown, ChevronRight, Bookmark } from 'lucide-react';
 import { writeBatch, doc, collection } from "firebase/firestore";
 import { db } from "../firebase";
@@ -57,7 +57,7 @@ export const Requisitos = () => {
           <button onClick={subirDatosAFirebase} className="bg-red-500 text-white px-4 py-2 rounded mb-4 text-xs">
             ADMIN: Subir Datos Iniciales a DB
           </button>
-          
+
           <p className="text-gray-500 text-sm mt-1">Estándares del programa Power Service</p>
         </div>
         
