@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { requisitosData } from './data.js';
 import { Search, ChevronDown, ChevronRight, Bookmark } from 'lucide-react';
+import { writeBatch, doc, collection } from "firebase/firestore";
+import { db } from "../firebase";
 
 export const Requisitos = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -17,11 +19,45 @@ export const Requisitos = () => {
     setExpandedPillar(expandedPillar === pillar ? null : pillar);
   };
 
+  const subirDatosAFirebase = async () => {
+    if (!confirm("¿Estás seguro de subir los datos? Esto sobrescribirá la base de datos.")) return;
+    
+    try {
+      const batch = writeBatch(db);
+      
+      // 1. Subir Requisitos
+      requisitosData.forEach((req) => {
+        const docRef = doc(db, "requisitos", req.id); // Usamos el ID (IS.1.1) como llave
+        batch.set(docRef, req);
+      });
+  
+      // 2. Subir Planes de Acción
+      // Para los planes, generaremos un ID único automático o usaremos reqId si es 1 a 1.
+      // Como puede haber varios planes para un requisito, mejor dejamos que Firestore genere el ID, 
+      // pero guardamos el reqId dentro del documento para relacionarlos.
+      planesAccionData.forEach((plan) => {
+        const docRef = doc(collection(db, "planes"));
+        batch.set(docRef, plan);
+      });
+  
+      await batch.commit();
+      alert("¡Datos subidos a la nube con éxito!");
+    } catch (error) {
+      console.error("Error subiendo datos:", error);
+      alert("Error: " + error.message);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-10">
       <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 bg-white p-6 rounded-xl shadow-sm border-l-4 border-jd-yellow">
         <div>
           <h2 className="text-2xl font-bold text-jd-green">Requisitos Operacionales</h2>
+
+          <button onClick={subirDatosAFirebase} className="bg-red-500 text-white px-4 py-2 rounded mb-4 text-xs">
+            ADMIN: Subir Datos Iniciales a DB
+          </button>
+          
           <p className="text-gray-500 text-sm mt-1">Estándares del programa Power Service</p>
         </div>
         

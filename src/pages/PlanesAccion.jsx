@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
-import { planesAccionData, requisitosData } from './data.js';
-import { User, CheckCircle2, Upload, Save, Calendar, Clock, FileText } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+// Importamos funciones de Firebase
+import { collection, onSnapshot, doc, updateDoc, query, orderBy } from "firebase/firestore";
+import { db } from "../firebase";
+import { requisitosData } from './data.js'; // Mantenemos los requisitos estáticos por rendimiento, o podrías leerlos de firebase también
+import { User, CheckCircle2, Upload, Save, Calendar, FileText, Loader2 } from 'lucide-react';
 
 const STATUS_COLORS = {
   'Completado': 'bg-green-100 text-green-800 border-green-200',
@@ -11,17 +14,62 @@ const STATUS_COLORS = {
 
 export const PlanesAccion = () => {
   const [selectedPlan, setSelectedPlan] = useState(null);
-  const [planes, setPlanes] = useState(planesAccionData);
+  const [planes, setPlanes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = () => {
-    alert("Funcionalidad de guardado simulada (aquí conectaríamos Firebase)");
-    // Aquí iría la lógica de actualización de estado
+  // 1. LEER DATOS EN TIEMPO REAL
+  useEffect(() => {
+    // Escuchamos la colección "planes"
+    const q = query(collection(db, "planes")); // Puedes agregar orderBy aqui
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const planesFetched = snapshot.docs.map(doc => ({
+        id: doc.id, // ID de Firestore
+        ...doc.data()
+      }));
+      setPlanes(planesFetched);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // 2. GUARDAR CAMBIOS
+  const handleSave = async () => {
+    if (!selectedPlan) return;
+    setIsSaving(true);
+    try {
+      const planRef = doc(db, "planes", selectedPlan.id);
+      await updateDoc(planRef, {
+        action: selectedPlan.action,
+        status: selectedPlan.status,
+        responsible: selectedPlan.responsible,
+        startDate: selectedPlan.startDate,
+        endDate: selectedPlan.endDate,
+        comments: selectedPlan.comments || "",
+        // evidence: selectedPlan.evidence // (Lo veremos en el paso de Storage)
+      });
+      alert("¡Cambios guardados correctamente!");
+    } catch (error) {
+      console.error("Error al guardar:", error);
+      alert("Error al guardar");
+    } finally {
+      setIsSaving(false);
+    }
   };
   
+  // Combinamos datos de Firestore con la descripción estática de los requisitos
   const planesCompletos = planes.map(plan => {
     const req = requisitosData.find(r => r.id === plan.reqId);
     return { ...plan, description: req?.description, standard: req?.standard };
   });
+
+  // Función para actualizar el estado local mientras editamos
+  const updateLocalField = (field, value) => {
+    setSelectedPlan(prev => ({ ...prev, [field]: value }));
+  };
+
+  if (loading) return <div className="flex justify-center items-center h-full"><Loader2 className="animate-spin text-jd-green" size={48}/></div>;
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-100px)]">
@@ -33,12 +81,12 @@ export const PlanesAccion = () => {
         </div>
         
         <div className="overflow-y-auto flex-1 p-3 space-y-2 bg-gray-50">
-          {planesCompletos.map((plan, index) => (
+          {planesCompletos.map((plan) => (
             <div 
-              key={index}
+              key={plan.id}
               onClick={() => setSelectedPlan(plan)}
               className={`p-4 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md ${
-                selectedPlan === plan 
+                selectedPlan?.id === plan.id 
                   ? 'border-jd-green bg-white ring-2 ring-jd-green shadow-lg relative z-10' 
                   : 'border-gray-200 bg-white hover:border-jd-green/50'
               }`}
@@ -55,7 +103,7 @@ export const PlanesAccion = () => {
                     <User size={12} /> {plan.responsible}
                  </div>
                  <div className="flex items-center gap-1 text-xs text-gray-500">
-                    <Calendar size={12} /> {plan.endDate.split('-').reverse().join('/')}
+                    <Calendar size={12} /> {plan.endDate}
                  </div>
               </div>
             </div>
@@ -73,15 +121,16 @@ export const PlanesAccion = () => {
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <h2 className="text-2xl font-extrabold tracking-tight">{selectedPlan.reqId}</h2>
-                    <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-medium backdrop-blur-sm">Requisito</span>
                   </div>
                   <p className="text-green-100 text-sm font-medium opacity-90">{selectedPlan.standard}</p>
                 </div>
                 <button 
                   onClick={handleSave}
-                  className="bg-jd-yellow text-jd-black px-5 py-2.5 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-yellow-400 transition-all shadow-lg transform hover:-translate-y-0.5 active:translate-y-0"
+                  disabled={isSaving}
+                  className="bg-jd-yellow text-jd-black px-5 py-2.5 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-yellow-400 transition-all shadow-lg disabled:opacity-50"
                 >
-                  <Save size={18} /> Guardar Cambios
+                  {isSaving ? <Loader2 className="animate-spin" size={18}/> : <Save size={18} />} 
+                  {isSaving ? "Guardando..." : "Guardar Cambios"}
                 </button>
               </div>
             </div>
@@ -102,9 +151,10 @@ export const PlanesAccion = () => {
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Acción Correctiva / Plan</label>
                   <textarea 
-                    className="w-full p-4 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-jd-green focus:border-transparent outline-none shadow-sm transition-all"
+                    className="w-full p-4 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-jd-green outline-none shadow-sm"
                     rows="3"
-                    defaultValue={selectedPlan.action}
+                    value={selectedPlan.action}
+                    onChange={(e) => updateLocalField('action', e.target.value)}
                   />
                 </div>
 
@@ -113,7 +163,8 @@ export const PlanesAccion = () => {
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Estado Actual</label>
                     <select 
                       className="w-full p-2.5 bg-white border border-gray-300 rounded-lg text-sm outline-none focus:border-jd-green shadow-sm"
-                      defaultValue={selectedPlan.status}
+                      value={selectedPlan.status}
+                      onChange={(e) => updateLocalField('status', e.target.value)}
                     >
                       <option value="Pendiente">Pendiente</option>
                       <option value="En Progreso">En Progreso</option>
@@ -127,7 +178,8 @@ export const PlanesAccion = () => {
                       <User size={18} className="text-gray-400 mr-2"/>
                       <input 
                         type="text" 
-                        defaultValue={selectedPlan.responsible}
+                        value={selectedPlan.responsible}
+                        onChange={(e) => updateLocalField('responsible', e.target.value)}
                         className="w-full py-2.5 text-sm outline-none"
                       />
                     </div>
@@ -137,34 +189,31 @@ export const PlanesAccion = () => {
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Inicio</label>
-                    <input type="date" defaultValue={selectedPlan.startDate} className="w-full p-2.5 border border-gray-300 rounded-lg text-sm shadow-sm"/>
+                    <input 
+                      type="date" 
+                      value={selectedPlan.startDate}
+                      onChange={(e) => updateLocalField('startDate', e.target.value)}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg text-sm shadow-sm"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Fin Estimado</label>
-                    <input type="date" defaultValue={selectedPlan.endDate} className="w-full p-2.5 border border-gray-300 rounded-lg text-sm shadow-sm"/>
+                    <input 
+                      type="date" 
+                      value={selectedPlan.endDate}
+                      onChange={(e) => updateLocalField('endDate', e.target.value)}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg text-sm shadow-sm"
+                    />
                   </div>
                 </div>
 
-                {/* Evidencias */}
+                {/* Evidencias - Visual (Funcionalidad en la próxima fase) */}
                 <div>
                    <label className="block text-xs font-bold text-gray-500 uppercase mb-3">Evidencias</label>
-                   <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-gray-400 hover:bg-gray-50 hover:border-jd-green cursor-pointer transition-all group">
-                      <div className="bg-gray-100 p-3 rounded-full mb-3 group-hover:bg-green-100 transition-colors">
-                        <Upload size={24} className="group-hover:text-jd-green"/>
-                      </div>
-                      <span className="text-sm font-medium text-gray-600">Haz clic para subir archivos</span>
-                      <span className="text-xs text-gray-400 mt-1">Imágenes, PDF o Documentos</span>
+                   <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-gray-400 hover:bg-gray-50 hover:border-jd-green cursor-pointer transition-all">
+                      <Upload size={24} className="mb-2"/>
+                      <span className="text-sm">Subida de archivos próximamente...</span>
                    </div>
-                   {selectedPlan.evidence && selectedPlan.evidence.length > 0 && (
-                     <div className="mt-4 bg-white border rounded-lg divide-y">
-                       {selectedPlan.evidence.map((ev, i) => (
-                         <div key={i} className="p-3 flex items-center gap-3 text-sm text-gray-700">
-                            <CheckCircle2 size={16} className="text-jd-green"/>
-                            <span className="flex-1 underline cursor-pointer hover:text-jd-green">{ev}</span>
-                         </div>
-                       ))}
-                     </div>
-                   )}
                 </div>
 
                 <div>
@@ -172,8 +221,9 @@ export const PlanesAccion = () => {
                   <textarea 
                     className="w-full p-4 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-jd-green outline-none shadow-sm"
                     rows="3"
-                    placeholder="Agregar notas sobre el avance..."
-                    defaultValue={selectedPlan.comments}
+                    placeholder="Agregar notas..."
+                    value={selectedPlan.comments || ""}
+                    onChange={(e) => updateLocalField('comments', e.target.value)}
                   />
                 </div>
               </div>
@@ -185,7 +235,7 @@ export const PlanesAccion = () => {
                <FileText size={48} className="text-jd-green/50" />
             </div>
             <h3 className="text-lg font-bold text-gray-700">Ningún plan seleccionado</h3>
-            <p className="text-sm">Selecciona un ítem de la lista izquierda para ver detalles.</p>
+            <p className="text-sm">Selecciona un ítem de la lista izquierda para editar.</p>
           </div>
         )}
       </div>
